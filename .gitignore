@@ -1,0 +1,6 @@
+venv
+build
+dist
+.idea
+.vscode
+snowstorm.ico

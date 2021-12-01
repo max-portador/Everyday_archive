@@ -1,0 +1,5 @@
+tkinter
+beautifulsoup4
+lxml
+mechanize
+xlsxwriter
