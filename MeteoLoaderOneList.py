@@ -5,8 +5,10 @@ import datetime as dt
 import json
 import xlsxwriter as xl
 
-start_date: dt.date = dt.date(2019, 1, 1)
-dateList = [(start_date + dt.timedelta(days=x)).strftime("%d.%m") for x in range(365)]
+def get_dates_list(start_year, end_year):
+    start = dt.datetime.strptime(f"01-01-{start_year}", "%d-%m-%Y")
+    end = dt.datetime.strptime(f"31-12-{end_year}", "%d-%m-%Y")
+    return [ start + dt.timedelta(days=x) for x in range(0, (end-start).days)]
 
 
 headers = 'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) ' \
@@ -52,8 +54,9 @@ def parse_html_cells(cells):
     return meteo_data
 
 
-class MeteoArchiveLoader:
+class MeteoArchiveLoaderOneList:
     def __init__(self, region, start_year, end_year, save_dir, ids_list=[]):
+        self.dates_list =  get_dates_list(start_year, end_year)
         self.browser = create_browser()
         self.stations_ids_list = get_stations(region) if region else ids_list
         self.years = list(map(str, range(start_year, end_year + 1)))
@@ -105,6 +108,7 @@ class MeteoArchiveLoader:
                 print(f"[!]Critical, could not open page. {e}")
 
             self.load_single_station_data(station_id)
+            # print(self.data)
             self.save_data()
             self.data = {}
 
@@ -114,57 +118,51 @@ class MeteoArchiveLoader:
 
         # Создаем книгу Ecxel
         wb = xl.Workbook(save_file_name)
-        ws_temp = wb.add_worksheet('Температура')
-        ws_mintemp = wb.add_worksheet('Минимальная температура')
-        ws_maxtemp = wb.add_worksheet('Максимальная температура')
-        ws_wind = wb.add_worksheet('Максимальная температура')
-        ws_gust = wb.add_worksheet('Порывы ветра')
-        ws_prep = wb.add_worksheet('Осадки, мм')
-        ws_pres = wb.add_worksheet('Давление, гПа')
-        ws_snow = wb.add_worksheet('Высота снега, см')
+        ws = wb.add_worksheet(self.station_name)
+
 
         # Создаем стили ячеек
         merge_format = wb.add_format({'bold': 1, 'align': 'center', 'valign': 'vcenter'})
         merge_format.set_border(style=1)
+        
+        date_format = wb.add_format({'num_format': 'dd.mm.yyyy', 'bold': 1, 'align': 'center', 'valign': 'vcenter'})
+        date_format.set_border(style=1)
 
         temp_format = wb.add_format({'num_format': '# ##0', 'align': 'center', 'valign': 'vcenter'})
         temp_format.set_border(style=1)
 
-        # пишем шапки таблиц
-        for column in range(len(self.years)):
-            for worksheet in wb.worksheets():
-                worksheet.write(0, 1 + column, int(self.years[column]), merge_format)
+        columns = [
+            'Температура',
+            'Минимальная температура',
+            'Максимальная температура',
+            'Ветер',
+            'Порывы ветра', 
+            'Осадки, мм', 
+            'Давление, гПа',
+            'Высота снега, см'
+            ]
+        
+        # пишем шапку таблицы
+        for i, column in enumerate(["Дата", *columns]):
+            ws.write(0, i, column, merge_format)
 
+        def write_data(row, col, key):
+            if key in self.data:
+                data = self.data.get(key, "Н/Д").values()
+            else:
+                data = ['Н/Д'] * len(columns)    
+            
+            print(key, data)
+            for i, record in enumerate(data):
+                ws.write(row, col + 1 + i, record, temp_format)
+
+        
         # пишем первые столбцы
         row = 1
-        for i, day_month in enumerate(dateList):
-            for worksheet in wb.worksheets():
-                worksheet.write(row + i, 0, day_month, merge_format)
+        for i, dmy in enumerate(self.dates_list):
+            ws.write(row + i, 0, dmy, date_format)
+            write_data(row + i, 0, dmy.strftime("%d.%m.%Y"))
 
-        start_col = 1
-        for col_id, year in enumerate(self.years):
-            # начинаем запись каждого столбца с 1 строки
-            start_row = 1
-            for row_id, key_date in enumerate(dateList):
-                # берем дату из списка с 01.01 по 31.12 и присоединием текущий год
-                gen_date = f'{key_date}.{year}'
-                print('Запись данных за ' + gen_date)
-
-                if gen_date in self.data.keys():
-                    single_date_info = self.data[gen_date]
-
-                    # если в data есть наша сгененрированная дата, пишем эти данные
-                    def write_data(_worksheet, key):
-                        _worksheet.write(row_id + start_row, col_id + start_col, single_date_info.get(key, "Н/Д"), temp_format)
-
-                    write_data(ws_temp, 'av_temp')
-                    write_data(ws_mintemp, 'min_temp')
-                    write_data(ws_maxtemp, 'max_temp')
-                    write_data(ws_wind, 'wind')
-                    write_data(ws_gust, 'gusts')
-                    write_data(ws_pres, 'max_pressure')
-                    write_data(ws_prep, 'sum_prep')
-                    write_data(ws_snow, 'max_snow')
 
         print('Архив станции "' + self.station_name + '" успешно записан!')
 
